@@ -1,0 +1,111 @@
+---
+title: "25DataAnalysis"
+author: "Chang Lu"
+date: "2025-04-30"
+output: pdf_document
+---
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(readxl)
+library(rstatix)
+library(ggpubr)    
+```
+
+```{r}
+# Read the data
+
+combined_df <- read_excel("New - MAMS and Dental Combined.xlsx")
+
+head(combined_df)
+colnames(combined_df)
+```
+
+
+```{r}
+combined_df_new <- combined_df %>% 
+  slice(-1) %>%                      
+  rename(student = 1) %>%
+  mutate(across(c(`Total Score`, Accomodations, Sex, `Race/Ethnicity`,
+                  `English Proficiency`, `Born USA`, `Home Language`,
+                  `Age arrive USA`),
+                ~ parse_number(as.character(.))))%>%
+  rename(Total_Score = `Total Score`,   
+         Race_ethnicity  = `Race/Ethnicity`,
+         English_prof    = `English Proficiency`,
+         Born_usa        = `Born USA`,
+         Home_language   = `Home Language`)
+
+head(combined_df_new)
+
+unique(combined_df_new$Accomodations)
+```
+
+
+```{r}
+combined_df_new$Total_Score
+combined_df_new$Sex
+combined_df_new %>%
+  group_by(Sex) %>%                        # ← change to other factors too
+  shapiro_test(Total_Score)
+```
+```{r, include=FALSE}
+#combined_df_new$Total_Score
+#combined_df_new$Sex
+#combined_df_new %>%
+#  group_by(Accomodations) %>%                     
+#  shapiro_test(Total_Score)
+```
+
+```{r}
+combined_df_new$Total_Score
+combined_df_new$Race_ethnicity
+combined_df_new %>%
+  group_by(Race_ethnicity) %>%                     
+  shapiro_test(Total_Score)
+```
+
+```{r}
+combined_df_new$Total_Score
+combined_df_new$English_prof
+combined_df_new %>%
+  group_by(English_prof) %>%                     
+  shapiro_test(Total_Score)
+```
+
+
+```{r}
+combined_df_new$Total_Score
+combined_df_new$Born_usa
+combined_df_new %>%
+  group_by(Born_usa) %>%                     
+  shapiro_test(Total_Score)
+```
+
+```{r}
+combined_df_new$Total_Score
+combined_df_new$Home_language
+combined_df_new %>%
+  group_by(Home_language) %>%                     
+  shapiro_test(Total_Score)
+```
+
+
+```{r}
+# Mann-Whitney U test for sex
+wilcox.test(Total_Score ~ Sex, data = combined_df_new)
+
+# Mann-Whitney U test for accommodations
+wilcox.test(Total_Score ~ Accomodations, data = combined_df_new)
+```
+
+
+```{r}
+# t-tests for normal groups
+t.test(Total_Score ~ Race_ethnicity, data = combined_df_new)
+t.test(Total_Score ~ English_prof, data = combined_df_new)
+t.test(Total_Score ~ Born_usa, data = combined_df_new)
+t.test(Total_Score ~ Home_language, data = combined_df_new)
+```

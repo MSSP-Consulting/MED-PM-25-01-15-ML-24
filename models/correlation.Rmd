@@ -1,0 +1,122 @@
+---
+title: "Correlation bewteen Item difficulty and Point Biserial Correlation"
+author: "Chang Lu"
+date: "2025-02"
+output: pdf_document
+---
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+# Load necessary libraries
+library(tidyverse)
+library(psych)
+library(ggplot2)
+
+```
+In first part of the analysis, we will find whether there is correlation between r_pb and item difficulty.
+
+```{r, echo=FALSE, results='hide'}
+df <- readxl::read_xlsx("MAMS and Dental Combined for Analysis.xlsx")
+```
+
+```{r, results='hide', echo=FALSE}
+df_students <- df[2:32, ]
+
+head(df_students)
+# Define the new column names for the questions
+question_names <- paste0("Q", 1:20)  # Generates Q1, Q2, ..., Q20
+
+# Rename only the question columns
+colnames(df_students)[2:21] <- question_names
+
+head(df_students)
+```
+
+```{r}
+# Compute item difficulty as the mean proportion of correct responses
+item_difficulty <- df_students %>%
+  summarise(across(Q1:Q20, ~ mean(as.numeric(.), na.rm = TRUE))) %>%
+  pivot_longer(cols = everything(), names_to = "Item", values_to = "Item_Difficulty")
+
+print(item_difficulty)
+```
+```{r}
+# Compute point biserial correlation for each question using Pearson correlation
+point_biserial <- map_df(paste0("Q", 1:20), function(q) {
+  cor_value <- cor.test(as.numeric(df_students[[q]]), as.numeric(df_students$`Total Score`), method = "pearson")$estimate
+  tibble(Item = q, Point_Biserial_Correlation = cor_value)
+})
+
+print(point_biserial)
+```
+
+The r_pb I calculated is equal to the original data client provided. Also,we can notice that there are some negative rpb, which suggests that students who performed well overall tended to get that specific question wrong more often than those who performed poorly.
+
+Now we move to figure out correlation between them:
+
+```{r}
+# Combine item difficulty and point biserial correlation data
+combined_IDPB <- left_join(item_difficulty, point_biserial, by = "Item")
+
+print(combined_IDPB)
+```
+
+1. Pearson Correlation
+```{r}
+correlation_result <- cor(combined_IDPB$Item_Difficulty, 
+                          combined_IDPB$Point_Biserial_Correlation, 
+                          use = "complete.obs")
+
+print(paste("Pearson Correlation coef between Item Difficulty and Point Biserial Correlation:", round(correlation_result, 3)))
+```
+
+```{r}
+ggplot(combined_IDPB, aes(x = Item_Difficulty, y = Point_Biserial_Correlation)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Relationship Between Item Difficulty and Point Biserial Correlation",
+       x = "Item Difficulty",
+       y = "Point Biserial Correlation")
+```
+
+A Pearson correlation of 0.423 indicates a moderate positive relationship between item difficulty and point biserial correlation, which suggests that easier questions (higher item difficulty, >=0.8) tend to better discriminate between high and low performance students(higher point biserial correlation). But some outliers exist.
+
+2. Spearman's Rank correlation
+```{r}
+spearman_corr <- cor(combined_IDPB$Item_Difficulty, 
+                     combined_IDPB$Point_Biserial_Correlation, 
+                     method = "spearman", use = "complete.obs")
+print(paste("Spearman's Rank Correlation coef:", round(spearman_corr, 3)))
+```
+
+```{r, warning=FALSE}
+# Create Spearman correlation scatter plot with trend line
+ggplot(combined_IDPB, aes(x = Item_Difficulty, y = Point_Biserial_Correlation)) +
+  geom_point(color = "blue", size = 3) +  # Scatter points
+  geom_smooth(method = "loess", se = FALSE, color = "red") +  # Nonlinear trend line
+  labs(title = "Spearman Correlation: Item Difficulty vs. Point Biserial Correlation",
+       x = "Item Difficulty",
+       y = "Point Biserial Correlation") +
+  theme_minimal()
+  ```
+
+3. Kendall Tau correlation
+```{r}
+kendall_corr <- cor(combined_IDPB$Item_Difficulty, 
+                    combined_IDPB$Point_Biserial_Correlation, 
+                     method = "kendall")
+
+print(paste("Kendall Correlation coef:", round(kendall_corr, 3)))
+```
+
+4. Correlation to chose
+```{r}
+shapiro.test(combined_IDPB$Item_Difficulty)
+
+shapiro.test(combined_IDPB$Point_Biserial_Correlation)
+```
+From the Shapiro-Wilk normality test results:
+Item Difficulty: p-value = 0.6546, which is normally distributed (fails to reject normality).
+Point Biserial Correlation: p-value = 0.01516, which means it is not normally distributed (rejects normality).
+
+Since one variable (Point Biserial Correlation) is not normally distributed, Spearman’s Rank Correlation is a better choice than Pearson.The relationship is weak to moderate (0.423 Pearson, 0.361 Spearman, 0.244 Kendall).
+In a word, some easy questions do have higher discrimination power. However, not all easy questions discriminate well, and medium-difficulty questions (0.4-0.6) tend to be the best discriminators.

@@ -1,0 +1,250 @@
+---
+title: "Normalitycheck"
+author: "Chang Lu"
+date: "2025-02-15"
+output: pdf_document
+---
+
+```{r}
+library(readxl)
+library(dplyr)
+library(nortest)
+library(ggplot2)
+```
+
+### Data clean
+
+```{r}
+df <- read_excel("MAMS and Dental Combined for Analysis.xlsx", sheet = "Sheet1")
+head(df)
+summary(df)
+```
+
+```{r}
+df_students <- df[2:32, ]
+
+head(df_students)
+# Define the new column names for the questions
+question_names <- paste0("Q", 1:20)  # Generates Q1, Q2, ..., Q20
+
+# Rename only the question columns
+colnames(df_students)[2:21] <- question_names
+
+head(df_students)
+colnames(df_students)
+```
+
+```{r}
+# Convert value format to numeric
+df_students$`Total Score` <- as.numeric(df_students$`Total Score`)
+df_students$`Quiz Time` <- as.numeric(df_students$`Quiz Time`)
+df_students$Accomodations <- as.numeric(df_students$Accomodations)
+df_students$Sex <- as.numeric(df_students$Sex)
+df_students$`Race/Ethnicity` <- as.numeric(df_students$`Race/Ethnicity`)
+df_students$`English Proficiency` <- as.numeric(df_students$`English Proficiency`)
+df_students$`Born USA` <- as.numeric(df_students$`Born USA`)
+df_students$`Home Language` <- as.numeric(df_students$`Home Language`)
+df_students$`Age arrive USA`<- as.numeric(df_students$`Age arrive USA`)
+
+
+# Convert Quiz Time from seconds to minutes
+df_students$`Quiz Time Minutes` <- df_students$`Quiz Time` / 60 # for later test
+# Create Quiz Time Bins
+df_students$`Quiz Time Group` <- cut(df_students$`Quiz Time Minutes`, 
+                                   breaks = c(0, 10, 20, Inf), 
+                                   labels = c("0-10 min", "10-20 min", "20+ min"),
+                                   include.lowest = TRUE)
+
+# Check new groups
+table(df_students$`Quiz Time Group`)
+
+
+# Verify changes
+str(df_students)
+```
+# Quiz_Time = check_normality_by_group(df_students, "Quiz Time Minutes","Total Score"),
+# Accomodations = check_normality_by_group(df_students, "Accomodations","Total Score"),
+# Age_Arrive_USA = check_normality_by_group(df_students, "Age arrive USA","Total Score")
+
+
+### Shapiko-Wilk Test
+
+```{r}
+# function for normality check using the Shapiro-Wilk test
+# if the result of p-value >0.05, the data is normal
+check_normality_by_group <- function(data, group_col, test_col) {
+  data %>%
+    group_by(!!sym(group_col)) %>%
+    summarise(
+      Shapiro_Statistic = shapiro.test(na.omit(!!sym(test_col)))$statistic,
+      P_Value = shapiro.test(na.omit(!!sym(test_col)))$p.value
+    ) %>%
+    arrange(P_Value)  
+}
+```
+
+```{r}
+# Check normality for Total Score by demographic group
+normality_total_score <- list(
+  Sex = check_normality_by_group(df_students, "Sex", "Total Score"),
+  Race_Ethnicity = check_normality_by_group(df_students, "Race/Ethnicity", "Total Score"),
+  English_Proficiency = check_normality_by_group(df_students, "English Proficiency", "Total Score"),
+  Born_USA = check_normality_by_group(df_students, "Born USA", "Total Score"),
+  Home_Language = check_normality_by_group(df_students, "Home Language", "Total Score")
+)
+```
+
+```{r}
+# Print results
+print("Normality Test for Total Score by Group")
+print(normality_total_score)
+```
+Both groups p > 0.05, we use t-test. At least one group p <= 0.05, we use Mann-Whitney U test (nonparametric).
+
+Sex: MWU
+Race: T-test
+English: t-test
+BornUSA: MWU
+homeLanguage: t-test
+
+
+
+```{r}
+
+# Function to create a Q-Q plot for a given group
+plot_qq <- function(data, group_col, test_col) {
+  ggplot(data, aes(sample = !!sym(test_col))) +
+    stat_qq() +
+    stat_qq_line() +
+    facet_wrap(~get(group_col)) +
+    ggtitle(paste("Q-Q Plot for", test_col, "by", group_col)) +
+    theme_minimal()
+}
+
+# Function to create a histogram with density plot for a given group
+plot_histogram <- function(data, group_col, test_col) {
+  ggplot(data, aes(x = !!sym(test_col))) +
+    geom_histogram(aes(y = ..density..), bins = 20, fill = "lightblue", color = "black") +
+    geom_density(color = "red", linewidth = 1) +
+    facet_wrap(~get(group_col)) +
+    ggtitle(paste("Histogram for", test_col, "by", group_col)) +
+    theme_minimal()
+}
+
+# Generate normality plots for Total Score by different demographic groups
+plot_qq(df_students, "Sex", "Total Score")
+plot_histogram(df_students, "Sex", "Total Score")
+
+plot_qq(df_students, "Race/Ethnicity", "Total Score")
+plot_histogram(df_students, "Race/Ethnicity", "Total Score")
+
+plot_qq(df_students, "English Proficiency", "Total Score")
+plot_histogram(df_students, "English Proficiency", "Total Score")
+
+plot_qq(df_students, "Born USA", "Total Score")
+plot_histogram(df_students, "Born USA", "Total Score")
+
+plot_qq(df_students, "Home Language", "Total Score")
+plot_histogram(df_students, "Home Language", "Total Score")
+
+plot_qq(df_students, "Accomodations", "Total Score")
+plot_histogram(df_students, "Accomodations", "Total Score")
+
+plot_qq(df_students, "Quiz Time Group", "Total Score")
+plot_histogram(df_students, "Quiz Time Group", "Total Score")
+
+plot_qq(df_students, "Age arrive USA", "Total Score")
+plot_histogram(df_students, "Age arrive USA", "Total Score")
+```
+
+### Kolmogorov-Smirnov Test
+
+```{r}
+# function using the Kolmogorov-Smirnov Test
+check_ks_normality_by_group <- function(data, group_col, test_col) {
+  data %>%
+    group_by(!!sym(group_col)) %>%
+    summarise(
+      Sample_Size = n(),
+      KS_Statistic = ifelse(Sample_Size >= 3, 
+                            ks.test(na.omit(!!sym(test_col)), "pnorm", 
+                                    mean = mean(na.omit(!!sym(test_col))), 
+                                    sd = sd(na.omit(!!sym(test_col))))$statistic, 
+                            NA),
+      P_Value = ifelse(Sample_Size >= 3, 
+                       ks.test(na.omit(!!sym(test_col)), "pnorm", 
+                               mean = mean(na.omit(!!sym(test_col))), 
+                               sd = sd(na.omit(!!sym(test_col))))$p.value, 
+                       NA)
+    ) %>%
+    arrange(P_Value)
+}
+```
+
+```{r}
+# Apply the KS test to different groups
+ks_normality_accomodations <- check_ks_normality_by_group(df_students, "Accomodations", "Total Score")
+
+print("Kolmogorov-Smirnov Normality Test for Total Score by Quiz Time Group")
+print(ks_normality_accomodations)
+```
+
+# Lilliefors Test
+
+```{r}
+#  Function using Lilliefors Test
+check_lilliefors_normality_by_group <- function(data, group_col, test_col) {
+  data %>%
+    group_by(!!sym(group_col)) %>%
+    summarise(
+      Sample_Size = n(),
+      Lilliefors_Statistic = ifelse(Sample_Size >= 3, 
+                                    lillie.test(na.omit(!!sym(test_col)))$statistic, 
+                                    NA),
+      P_Value = ifelse(Sample_Size >= 3, 
+                       lillie.test(na.omit(!!sym(test_col)))$p.value, 
+                       NA)
+    ) %>%
+    arrange(P_Value)
+}
+```
+
+```{r}
+lilliefors_normality_accomodations <- check_lilliefors_normality_by_group(df_students, "Accomodations", "Total Score")
+lilliefors_normality_quiz_time <- check_lilliefors_normality_by_group(df_students, "Quiz Time Group", "Total Score")
+lilliefors_normality_Age_Arrive_USA <- check_lilliefors_normality_by_group(df_students, "Age arrive USA", "Total Score")
+
+
+print("Lilliefors Normality Test for Total Score by different Group")
+print(lilliefors_normality_accomodations)
+print(lilliefors_normality_quiz_time)
+print(lilliefors_normality_Age_Arrive_USA)
+```
+
+I suggest using MWU test for accomodations and Age arrive USA, for one of the group sample size is too small(< 3), fails to using normality tests.
+
+The quiz time group(categorized by 10 minutes) is suitable to use normality test.
+
+
+
+### Conclusion: 
+
+#### T-test: 
+
+1. quiz time(categorized by 10 minutes)
+
+2. English Proficiency
+
+3. Race
+
+4. Home Language
+
+#### Mann-Whitney U Test
+
+1. Accomodations
+
+2. Age Arrive USA
+
+3. Sex
+
+4. Born in USA

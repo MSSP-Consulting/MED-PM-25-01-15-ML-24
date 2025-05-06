@@ -1,0 +1,314 @@
+---
+title: "Kappa test"
+author: "sts"
+date: "2025-04-03"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+library(readxl)  
+library(dplyr)   
+```
+
+```{r}
+data1 <- read_excel("Latchman_Rubric Scoring Sheet 2025.xlsx", sheet = 1)
+data2 <- read_excel("Rubric Scoring Sheet 2025 kva UF.xlsx", sheet = 1)
+data3 <-read_excel("Rubric Scoring Sheet 2025 LY UF.xlsx", sheet = 1)
+data4 <-read_excel("Wagner_Rubric Scoring Sheet 2025.xlsx", sheet = 1)
+df1 <- data1[0:12, c(1, 3:ncol(data1))]  
+df2 <- data2[0:12, c(1, 3:ncol(data2))]
+df3 <- data3[0:12, c(1, 3:ncol(data3))]
+df4 <- data4[0:12, c(1, 3:ncol(data4))]
+df1
+```
+
+
+```{r}
+df1 <- df1 %>%
+  mutate(across(-Criteria, ~case_when(
+    . == "Y" ~ 1,
+    . == "N" ~ 0,
+    . == "N/A" ~ NA_real_,
+    TRUE ~ NA_real_ 
+  )))
+df2 <- df2 %>%
+  mutate(across(-Criteria, ~case_when(
+    . == "Y" ~ 1,
+    . == "N" ~ 0,
+    . == "N/A" ~ NA_real_,
+    TRUE ~ NA_real_  
+  )))
+df3 <- df3 %>%
+  mutate(across(-Criteria, ~case_when(
+    . == "Y" ~ 1,
+    . == "N" ~ 0,
+    . == "N/A" ~ NA_real_,
+    TRUE ~ NA_real_  
+  )))
+df4 <- df4 %>%
+  mutate(across(-Criteria, ~case_when(
+    . == "Y" ~ 1,
+    . == "N" ~ 0,
+    . == "N/A" ~ NA_real_,
+    TRUE ~ NA_real_ 
+  )))
+
+```
+
+
+```{r}
+library(irr)
+
+```
+
+```{r}
+dfs <- list(df1, df2, df3, df4)
+names(dfs) <- c("Rater1", "Rater2", "Rater3", "Rater4")
+dfs
+```
+```{r}
+# 表二：每个 question 的评分者列
+criteria_df <- do.call(cbind, lapply(dfs, function(df) {
+  df_numeric <- df[, sapply(df, is.numeric)]
+  rowMeans(df_numeric, na.rm = TRUE)
+}))
+colnames(criteria_df) <- names(dfs)
+rownames(criteria_df) <- paste0("Criteria", 1:nrow(dfs[[1]]))
+criteria_df <- as.data.frame(criteria_df)
+
+question_df <- do.call(rbind, lapply(dfs, function(df) {
+  df_numeric <- df[, sapply(df, is.numeric)]
+  colMeans(df_numeric, na.rm = TRUE)
+}))
+question_df <- as.data.frame(t(question_df))
+colnames(question_df) <- names(dfs)
+rownames(question_df) <- paste0("Q", 1:nrow(question_df))
+
+```
+```{r}
+rater_matrix 
+```
+
+```{r}
+question_df
+```
+
+```{r}
+library(irr)
+
+# 假设每个 dfs[[i]] 是一个 12x30 的矩阵（criteria × question）
+# 我们先把每个评分者的评分拉平成向量，然后拼成一个矩阵
+
+# 将每个评分者的评分矩阵拉平成一列
+rater_matrix <- do.call(cbind, lapply(dfs, function(df) {
+  as.vector(as.matrix(df[, sapply(df, is.numeric)]))
+}))
+
+# 每一列是一个评分者，每一行为同一个样本的不同评分者评分
+# 做 Light's Kappa 测试
+light.kappa <- kappam.fleiss(rater_matrix)
+print(light.kappa)
+
+```
+
+
+
+```{r}
+library(irr)
+
+# Assuming dfs is your list of dataframes with names Rater1, Rater2, Rater3, Rater4
+dfs <- list(df1, df2, df3, df4)
+names(dfs) <- c("Rater1", "Rater2", "Rater3", "Rater4")
+
+# Function to perform light kappa test for each question (Q2 to Q30, skipping Criteria)
+for (q in 2:31) {
+  # Extract the column for each question across all raters
+  data_matrix <- do.call(cbind, lapply(dfs, function(df) df[, q]))
+  
+  # Remove rows with NA
+  valid_rows <- complete.cases(data_matrix)
+  data_matrix <- data_matrix[valid_rows, , drop = FALSE]
+  
+  if (nrow(data_matrix) > 0) {
+    # Check for variability
+    if (length(unique(as.vector(data_matrix))) > 1) {
+      # Perform Fleiss' kappa test for multiple raters
+      kappa_result <- kappam.fleiss(data_matrix)
+      cat(sprintf("Fleiss' Kappa for Q%d: %f\n", q-1, kappa_result$value))
+    } else {
+      cat(sprintf("Fleiss' Kappa for Q%d: Not enough variability (all ratings identical)\n", q))
+    }
+  } else {
+    cat(sprintf("Fleiss' Kappa for Q%d: Not enough valid data\n", q))
+  }
+}
+
+# Function to perform light kappa test for each criterion (1 to 12)
+for (c in 1:12) {
+  # Extract the criterion row across all raters
+  data_matrix <- do.call(cbind, lapply(dfs, function(df) df[c, ]))
+  
+  # Remove rows with NA (adjusting for row-wise data)
+  valid_rows <- complete.cases(t(data_matrix))
+  data_matrix <- t(data_matrix[, valid_rows, drop = FALSE])
+  if (nrow(data_matrix) > 0) {
+    # Check for variability
+    if (length(unique(as.vector(data_matrix))) > 1) {
+      # Perform Fleiss' kappa test for multiple raters
+      kappa_result <- kappam.fleiss(data_matrix)
+      cat(sprintf("Fleiss' Kappa for Criterion %d: %f\n", c, kappa_result$value))
+    } else {
+      cat(sprintf("Fleiss' Kappa for Criterion %d: Not enough variability (all ratings identical)\n", c))
+    }
+  } else {
+    cat(sprintf("Fleiss' Kappa for Criterion %d: Not enough valid data\n", c))
+  }
+}
+
+```
+
+
+```{r}
+sample_cols <- colnames(df1)[-1]  
+
+flaws <- paste0("Flaw", 1:12)  
+df_list <- lapply(dfs, function(df) {
+  df <- df[1:12, ]  
+  df$Criteria <- flaws  
+  return(df)
+})
+df_list
+```
+```{r}
+flaws_per_sample <- list()
+
+for (sample in sample_cols) {
+  flaws_info <- data.frame(Sample = sample)
+  for (rater in names(df_list)) {
+    df <- df_list[[rater]]
+    ratings <- df[[sample]]
+    marked_flaws <- df$Criteria[ratings == 1]
+    if (length(marked_flaws) == 0) {
+      marked_flaws <- "None"
+    }
+    flaws_info[[rater]] <- paste(marked_flaws, collapse = ", ")
+  }
+  flaws_per_sample[[sample]] <- flaws_info
+}
+
+flaws_per_sample
+```
+
+
+
+```{r}
+flaws_summary <- do.call(rbind, flaws_per_sample)
+
+print("Flaws marked for each sample by each rater:")
+print(flaws_summary)
+```
+```{r}
+kappa_results <- data.frame(Sample = sample_cols, Kappa = NA, P_value = NA)
+
+for (sample in sample_cols) {
+
+  ratings <- sapply(df_list, function(df) df[[sample]])
+  
+  ratings_matrix <- matrix(ratings, nrow = 12, ncol = 4, byrow = FALSE)
+  
+  ratings_matrix <- ratings_matrix[complete.cases(ratings_matrix), ]
+  
+  if (nrow(ratings_matrix) > 1) {
+    kappa_result <- kappam.fleiss(ratings_matrix)
+    
+    kappa_results$Kappa[kappa_results$Sample == sample] <- kappa_result$value
+    kappa_results$P_value[kappa_results$Sample == sample] <- kappa_result$p.value
+  } else {
+  
+    kappa_results$Kappa[kappa_results$Sample == sample] <- NA
+    kappa_results$P_value[kappa_results$Sample == sample] <- NA
+  }
+}
+
+print("Kappa results for each sample:")
+print(kappa_results)
+```
+```{r}
+kappam.fleiss(ratings_matrix
+              , detail = TRUE)
+```
+```{r}
+ratings_matrix
+```
+
+
+```{r}
+library(irr)
+
+kappa_results <- data.frame(
+  Sample = character(),
+  Criteria_Used = integer(),
+  Kappa = numeric(),
+  z = numeric(),
+  p_value = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (sample in sample_cols) {
+  # 提取所有评分者对当前 sample 的评分
+  ratings <- sapply(df_list, function(df) df[[sample]])
+  
+  # 构建一个矩阵，行：样本，列：评分者
+  ratings_matrix <- matrix(ratings, nrow = 12, ncol = 4, byrow = FALSE)
+  
+  # 去掉包含 NA 的行
+  ratings_matrix <- ratings_matrix[complete.cases(ratings_matrix), ]
+  
+  if (nrow(ratings_matrix) > 1) {
+    result <- suppressWarnings(kappam.fleiss(ratings_matrix))
+    
+    kappa_results <- rbind(kappa_results, data.frame(
+      Sample = sample,
+      Criteria_Used = nrow(ratings_matrix),
+      Kappa = result$value,
+      z = result$statistic,
+      p_value = result$p.value,
+      stringsAsFactors = FALSE
+    ))
+  } else {
+    kappa_results <- rbind(kappa_results, data.frame(
+      Sample = sample,
+      Criteria_Used = nrow(ratings_matrix),
+      Kappa = NA,
+      z = NA,
+      p_value = NA,
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+print("Fleiss' Kappa results for each sample:")
+print(kappa_results)
+
+```
+
+```{r}
+ratings_matrix
+```
+
+
+
+```{r}
+write.csv(flaws_summary, "flaws_per_sample.csv", row.names = FALSE)
+```
+
+
+
+
+
+
+
+
+

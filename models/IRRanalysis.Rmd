@@ -1,0 +1,319 @@
+---
+title: "IRRanalysis"
+author: "Chang Lu"
+date: "2025-04-04"
+output: pdf_document
+---
+
+```{r, include=FALSE}
+library("readxl")
+library("dplyr")
+library(ggplot2)
+library(tidyr)
+library(irr)
+```
+
+### part 1 kappa by criteria
+
+```{r}
+latchman <- read_excel("Latchman_Rubric Scoring Sheet 2025.xlsx", sheet = 1)
+kva      <- read_excel("Rubric Scoring Sheet 2025 kva UF.xlsx", sheet = 1)
+ly       <- read_excel("Rubric Scoring Sheet 2025 LY UF.xlsx", sheet = 1)
+wagner   <- read_excel("Wagner_Rubric Scoring Sheet 2025.xlsx", sheet = 1)
+```
+
+```{r}
+clean_rater <- function(df) {
+  df_clean <- df[1:12, -(1:2)]
+  df_clean <- df_clean %>%
+    mutate_all(as.character) %>%
+    mutate_all(toupper)
+  return(df_clean)
+}
+
+latchman_clean <- clean_rater(latchman)
+kva_clean      <- clean_rater(kva)
+ly_clean       <- clean_rater(ly)
+wagner_clean   <- clean_rater(wagner)
+#tail(latchman) 
+```
+
+```{r}
+normalize_score <- function(x) {
+  x <- toupper(trimws(x))  # remove whitespace and make uppercase
+  
+  if (x %in% c("N/A", "NA")) {
+    return(NA)
+  } else if (grepl("^Y(\\b|\\W)", x)) {
+    return("Y")
+  } else if (grepl("^N(\\b|\\W)", x)) {
+    return("N")
+  } else {
+    return(NA)  # comments like "A IS DIFFERENT..." will be treated as NA
+  }
+}
+```
+
+```{r}
+latchman_normalized <- latchman_clean %>% 
+  mutate(across(everything(), ~sapply(., normalize_score)))
+kva_normalized <- kva_clean %>%
+  mutate(across(everything(), ~sapply(., normalize_score)))
+ly_normalized <- ly_clean %>% 
+  mutate(across(everything(), ~sapply(., normalize_score)))
+wagner_normalized <- wagner_clean %>%
+  mutate(across(everything(), ~sapply(., normalize_score)))
+#tail(latchman_normalized)
+```
+
+```{r}
+reshape_rater <- function(df, rater_name) {
+  df <- df %>%
+    filter(rowSums(!is.na(.)) > 1) %>%  # Drop rows that are all NA or mostly empty
+    mutate(Criterion = 1:nrow(.)) %>%
+    pivot_longer(
+      cols = -Criterion,
+      names_to = "Question",
+      values_to = "Score"
+    ) %>%
+    mutate(Rater = rater_name)
+  return(df)
+}
+
+latchman_long <- reshape_rater(latchman_normalized, "Latchman")
+kva_long      <- reshape_rater(kva_normalized, "KVA")
+ly_long       <- reshape_rater(ly_normalized, "LY")
+wagner_long   <- reshape_rater(wagner_normalized, "Wagner")
+#tail(latchman_long)
+```
+
+```{r}
+all_ratings <- bind_rows(latchman_long, kva_long, ly_long, wagner_long)
+all_ratings
+```
+
+```{r, warning=FALSE}
+# Initialize results dataframe
+kappa_results <- data.frame(
+  Criterion = 1:12,
+  Subjects = NA,
+  Kappa = NA,
+  z = NA,
+  p_value = NA
+)
+
+for (i in 1:12) {
+  # Reshape data for this criterion
+  crit <- all_ratings %>%
+    filter(Criterion == i) %>%
+    pivot_wider(names_from = Rater, values_from = Score) %>%
+    select(-Question)
+  
+  # Drop Criterion column
+  crit_clean <- crit %>%
+    select(-Criterion)
+
+  # Filter rows with at least 2 non-NA scores
+  crit_matrix <- as.matrix(crit_clean[rowSums(!is.na(crit_clean)) >= 2, ])
+
+  # Only run kappa if matrix is valid
+  if (nrow(crit_matrix) >= 2) {
+    result <- tryCatch(
+      kappam.light(crit_matrix),
+      error = function(e) NULL
+    )
+
+    if (!is.null(result)) {
+      kappa_results$Subjects[i] <- result$subjects
+      kappa_results$Kappa[i] <- result$value
+      kappa_results$z[i] <- result$statistic
+      kappa_results$p_value[i] <- result$p.value
+    }
+  }
+}
+
+print(kappa_results)
+```
+
+```{r}
+for (i in 1:12) {
+  cat("\n=== Criterion", i, "===\n")
+  
+  df <- all_ratings %>%
+    filter(Criterion == i) %>%
+    pivot_wider(names_from = Rater, values_from = Score) %>%
+    select(-Question, -Criterion)
+  
+  df[df == "N/A"] <- NA
+  df_filtered <- df[rowSums(!is.na(df)) >= 2, ]
+  
+  if (nrow(df_filtered) == 0) {
+    cat("No usable rows after filtering.\n")
+  } else {
+    print(table(apply(df_filtered, 1, paste, collapse = "-")))
+  }
+}
+```
+
+```{r, warning=FALSE}
+plot_data <- kappa_results %>%
+  mutate(
+    Criterion = paste0("C", Criterion),
+    Criterion = factor(Criterion, levels = paste0("C", 1:12)),
+    Label = ifelse(is.nan(Kappa), "Perfect\nagreement", sprintf("%.2f", round(Kappa, 2))),
+    Fill = case_when(
+      is.nan(Kappa) ~ "Perfect",
+      Kappa >= 0.75 ~ "Excellent",
+      Kappa >= 0.4  ~ "Moderate",
+      !is.na(Kappa) ~ "Low",
+      TRUE ~ "Missing"
+    )
+  )
+
+ggplot(plot_data, aes(x = Criterion, y = Kappa, fill = Fill)) +
+  geom_col(na.rm = TRUE) +
+  geom_text(aes(label = Label), vjust = -0.5, size = 3) +
+  scale_fill_manual(
+    values = c(
+      "Perfect" = "black",
+      "Excellent" = "green",
+      "Moderate" = "blue",
+      "Low" = "orange",
+      "Missing" = "gray"
+    )
+  ) +
+  labs(
+    title = "Light’s Kappa by Rubric Criterion",
+    y = "Kappa",
+    x = "Criterion",
+    fill = "Agreement level"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### part 2: One Kappa per Question (All Criteria Combined)
+
+```{r}
+# test on q1
+q1_data <- all_ratings %>%
+  filter(Question == "Q1") %>%
+  pivot_wider(names_from = Rater, values_from = Score) %>%
+  select(-Question, -Criterion)
+
+q1_data[q1_data == "N/A"] <- NA
+
+# Keep only criteria (rows) with at least 2 valid scores
+q1_filtered <- q1_data[rowSums(!is.na(q1_data)) >= 2, ]
+
+if (nrow(q1_filtered) >= 2) {
+  q1_matrix <- as.matrix(q1_filtered)
+  kappa_q1 <- kappam.light(q1_matrix)
+  print(kappa_q1)
+} else {
+  print("Not enough usable criteria to compute kappa for Question 1.")
+}
+```
+
+```{r}
+kappa_by_question <- data.frame(
+  Question = character(),
+  Criteria = integer(),
+  kappa = numeric(),
+  z = numeric(),
+  p_value = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (q in paste0("Q", 1:30)) {
+  q_data <- all_ratings %>%
+    filter(Question == q) %>%
+    pivot_wider(names_from = Rater, values_from = Score) %>%
+    select(-Question, -Criterion)
+  
+  # Clean "N/A"
+  q_data[q_data == "N/A"] <- NA
+  
+  # Keep criteria with at least 2 valid rater scores
+  q_filtered <- q_data[rowSums(!is.na(q_data)) >= 2, ]
+  
+  if (nrow(q_filtered) >= 2) {
+    mat <- as.matrix(q_filtered)
+    
+    k <- tryCatch({
+  result <- suppressWarnings(kappam.light(mat))
+  data.frame(
+    Question = q,
+    Criteria_Used = nrow(mat),
+    Kappa = result$value,
+    z = result$statistic,
+    p_value = result$p.value
+  )
+}, error = function(e) {
+  data.frame(Question = q, Criteria_Used = nrow(mat), Kappa = NA, z = NA, p_value = NA)
+})
+    
+  } else {
+    # Not enough usable criteria to compute kappa
+    k <- data.frame(Question = q, Criteria = nrow(q_filtered), Kappa = NA, z = NA, p_value = NA)
+  }
+  
+  kappa_by_question <- rbind(kappa_by_question, k)
+}
+
+kappa_by_question
+```
+
+
+```{r}
+# all criteria used
+kappa_by_question <- data.frame(
+  Question = character(),
+  Criteria_Used = integer(),
+  Kappa = numeric(),
+  z = numeric(),
+  p_value = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (q in paste0("Q", 1:30)) {
+
+  # Filter and reshape
+  q_data <- all_ratings %>%
+    filter(Question == q) %>%
+    pivot_wider(names_from = Rater, values_from = Score) %>%
+    select(-Question, -Criterion)
+
+  # Convert "N/A" to NA
+  q_data[q_data == "N/A"] <- NA
+
+  # Convert to matrix (no filtering on rows)
+  mat <- as.matrix(q_data)
+
+  # Run Light's Kappa
+  k <- tryCatch({
+    result <- suppressWarnings(kappam.light(mat))
+    data.frame(
+      Question = q,
+      Criteria_Used = nrow(mat),
+      Kappa = result$value,
+      z = result$statistic,
+      p_value = result$p.value
+    )
+  }, error = function(e) {
+    # Still return the row, even if kappa fails
+    data.frame(
+      Question = q,
+      Criteria_Used = nrow(mat),
+      Kappa = NA,
+      z = NA,
+      p_value = NA
+    )
+  })
+
+  # Append result
+  kappa_by_question <- rbind(kappa_by_question, k)
+}
+
+kappa_by_question
+```
